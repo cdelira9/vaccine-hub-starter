@@ -14,6 +14,10 @@ app.use(cors());
 app.use("/auth", authRoutes);
 // app.use(bodyParser.json());
 
+app.get("/", (req, res) => {
+    res.send({ping: "pong"})
+})
+
 // Handle 404 errors
 app.use((req, res, next) => {
   return next(new NotFoundError());
