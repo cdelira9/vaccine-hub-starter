@@ -1,60 +1,97 @@
-const bcrypt = require("bcrypt")
 const db = require("../db");
-const {BCRYPT_WORK_FACTOR} = require("../config")
+const bcrypt = require("bcrypt");
+const { BCRYPT_WORK_FACTOR } = require("../config");
 const { BadRequestError, UnauthorizedError } = require("../utils/errors");
 
 class User {
-  static async fetchUserByEmail(email) {}
-  static async login(credentials) {
-    //user submits their email and password and the email will be searched in the databse
-    //then will see if email matches the password written with the one with the database
-
-    throw new UnauthorizedError("Invalid email/password combination");
+  static async makePublicUser(user) {
+    return {
+      id: user.id,
+      first_name: user.first_name,
+      last_name: user.last_name,
+      location: user.location,
+      email: user.email,
+      date: user.date,
+    };
   }
-  static async register(credentials) {
-    //registering a person's email and password and hashing it to create new user
-    //that will contain all the info in database
-    const requiredFields = ["email", "password", "rsvpStatus", "numGuests"];
+
+  static async login(credentials) {
+    // Check required fields
+    const requiredFields = ["email", "password"];
     requiredFields.forEach((field) => {
       if (!credentials.hasOwnProperty(field)) {
         throw new BadRequestError(`Missing ${field} in request body.`);
       }
-    })
-
-    if(credentials.email.indexOf("@") <= 0){
-        throw new BadRequestError("Invalid email")
+    });
+    // Check if the user trying to log in is an existing user
+    const user = await User.fetchUserByEmail(credentials.email);
+    // If the user does not exist, throw error
+    if (user) {
+      const isValid = await bcrypt.compare(credentials.password, user.password);
+      if (isValid) {
+        return User.makePublicUser(user);
+      }
     }
+    throw new UnauthorizedError("Invalid email/password combo");
+  }
 
+  static async register(credentials) {
+    // Checks required fields
+    const requiredFields = [
+      "email",
+      "password",
+      "first_name",
+      "last_name",
+      "location",
+      "date",
+    ];
+    requiredFields.forEach((field) => {
+      if (!credentials.hasOwnProperty(field)) {
+        throw new BadRequestError(`Missing ${field} in request body.`);
+      }
+    });
+
+    if (credentials.email.indexOf("@") <= 0) {
+      throw new BadRequestError("Invalid email");
+    }
+    // Make sure no user already exists with that email
     const existingUser = await User.fetchUserByEmail(credentials.email);
     if (existingUser) {
       throw new BadRequestError(`Duplicate email: ${credentials.email}`);
     }
-
-    const hashedPassword = await bcrypt.hash(credentials.password, BCRYPT_WORK_FACTOR)
-
+    // Lowercase email, destructure variables, and HASH password
+    const hashedPassword = await bcrypt.hash(
+      credentials.password,
+      BCRYPT_WORK_FACTOR
+    );
     const lowercasedEmail = credentials.email.toLowerCase();
-
+    // Create new user
     const result = await db.query(
-      `
-    INSERT INTO users(
-        email,
+      `INSERT INTO users (
+        email, 
         password, 
-        rsvp_status, 
-        num_guests
-    )
-    VALUES($1, $2, $3, $4)
-    RETURNING id, email, rsvp_status, num_guests, created_at;
+        first_name,
+        last_name,
+        location,
+        date
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id, email, first_name, last_name, location, date;
     `,
       [
         lowercasedEmail,
         hashedPassword,
-        credentials.rsvpStatus,
-        credentials.numGuests,
+        credentials.first_name,
+        credentials.last_name,
+        credentials.location,
+        credentials.date,
       ]
     );
+    // Return the user
     const user = result.rows[0];
-    return user;
+    return User.makePublicUser(user);
   }
+
   static async fetchUserByEmail(email) {
     if (!email) {
       throw new BadRequestError("No email provided");
